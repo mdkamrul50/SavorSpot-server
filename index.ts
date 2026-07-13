@@ -29,7 +29,7 @@ const client = new MongoClient(uri, {
   },
 });
 
-// ────────────── Interfaces ──────────────
+// ────────────── Interfaces ───────────
 interface Location {
   city: string;
   area?: string;
