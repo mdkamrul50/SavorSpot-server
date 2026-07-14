@@ -265,62 +265,67 @@ app.delete(
   }
 );
 
-// ────────────── USER PROFILE ROUTES (new) ──────────────
+// ────────────── GET /api/users/:id (improved) ──────────────
+app.get('/api/users/:id', async (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const users = getUserCollection();
+    const { id } = req.params;
 
-// GET /api/users/:id – Get user profile (public, no auth)
-app.get(
-  '/api/users/:id',
-  async (req: Request<{ id: string }>, res: Response) => {
-    try {
-      const users = getUserCollection();
-      const { id } = req.params;
+    let user = null;
 
-      if (!ObjectId.isValid(id))
-        return res.status(400).json({ error: 'Invalid user ID' });
 
-      const user = await users.findOne(
-        { _id: new ObjectId(id) },
-        { projection: { password: 0 } } // exclude password
-      );
-
-      if (!user) return res.status(404).json({ error: 'User not found' });
-      res.json({ user });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    if (ObjectId.isValid(id)) {
+      user = await users.findOne({ _id: new ObjectId(id) });
     }
+   
+    if (!user) {
+      user = await users.findOne({ _id: id } as any);
+    }
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // exclude password
+    const { password, ...userWithoutPassword } = user;
+    res.json({ user: userWithoutPassword });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-);
+});
 
-// PUT /api/users/:id – Update profile (name, location, bio)
-app.put(
-  '/api/users/:id',
-  async (req: Request<{ id: string }>, res: Response) => {
-    try {
-      const users = getUserCollection();
-      const { id } = req.params;
+// ────────────── PUT /api/users/:id (improved) ──────────────
+app.put('/api/users/:id', async (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const users = getUserCollection();
+    const { id } = req.params;
+    const { name, location, bio } = req.body;
+    const update: any = {};
+    if (name) update.name = name;
+    if (location !== undefined) update.location = location;
+    if (bio !== undefined) update.bio = bio;
 
-      if (!ObjectId.isValid(id))
-        return res.status(400).json({ error: 'Invalid user ID' });
+    let result = null;
 
-      const { name, location, bio } = req.body;
-      const update: any = {};
-      if (name) update.name = name;
-      if (location !== undefined) update.location = location;
-      if (bio !== undefined) update.bio = bio;
-
-      const updated = await users.findOneAndUpdate(
+    if (ObjectId.isValid(id)) {
+      result = await users.findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: update },
         { returnDocument: 'after', projection: { password: 0 } }
       );
-
-      if (!updated) return res.status(404).json({ error: 'User not found' });
-      res.json({ user: updated });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
     }
+    if (!result) {
+      result = await users.findOneAndUpdate(
+        { _id: id } as any,
+        { $set: update },
+        { returnDocument: 'after', projection: { password: 0 } }
+      );
+    }
+
+    if (!result) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
-);
+});
 
 // ────────────── Root ──────────────
 app.get('/', (req: Request, res: Response) => {
