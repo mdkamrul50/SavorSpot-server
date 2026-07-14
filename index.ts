@@ -50,7 +50,7 @@ interface Experience {
   duration: number;
   maxGroupSize: number;
   category: string;
-  host?: ObjectId;
+  host?: ObjectId | string; 
   status?: 'pending' | 'approved' | 'rejected';
   createdAt?: Date;
 }
@@ -106,7 +106,7 @@ function getUserCollection(): Collection<User> {
   return db.collection<User>('users');
 }
 
-// ────────────── GET /api/experiences ──────────────
+// ────────────── GET /api/experiences (public) ──────────────
 app.get(
   '/api/experiences',
   async (req: Request<{}, {}, {}, QueryParams>, res: Response) => {
@@ -177,7 +177,34 @@ app.get(
   }
 );
 
-// ────────────── GET /api/experiences/:id ──────────────
+// ────────────── GET /api/experiences/my 
+app.get('/api/experiences/my', async (req: Request, res: Response) => {
+  try {
+    const collection = getExperienceCollection();
+    const { userId } = req.query;
+
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ error: 'userId query param is required' });
+    }
+
+    let filter: any = {};
+    if (ObjectId.isValid(userId)) {
+      filter.host = new ObjectId(userId);
+    } else {
+      filter.host = userId;
+    }
+
+    const experiences = await collection
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json({ experiences });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ────────────── GET /api/experiences/:id (public) ──────────────
 app.get(
   '/api/experiences/:id',
   async (req: Request<{ id: string }>, res: Response) => {
@@ -198,12 +225,14 @@ app.get(
   }
 );
 
-// ────────────── POST /api/experiences ──────────────
+// ────────────── POST /api/experiences 
 app.post('/api/experiences', async (req: Request, res: Response) => {
   try {
     const collection = getExperienceCollection();
+    const { userId, ...rest } = req.body; 
     const newExp: Experience = {
-      ...req.body,
+      ...rest,
+      host: userId ? new ObjectId(userId) : undefined, 
       ratingAvg: 0,
       reviewCount: 0,
       status: 'pending',
@@ -243,16 +272,35 @@ app.put(
   }
 );
 
-// ────────────── DELETE /api/experiences/:id ──────────────
+// ────────────── DELETE /api/experiences/:id 
 app.delete(
   '/api/experiences/:id',
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const collection = getExperienceCollection();
       const { id } = req.params;
+      const { userId } = req.query;
+
+      if (!userId || typeof userId !== 'string') {
+        return res
+          .status(400)
+          .json({ error: 'userId query param is required' });
+      }
 
       if (!ObjectId.isValid(id))
         return res.status(400).json({ error: 'Invalid ID' });
+
+     
+      const experience = await collection.findOne({ _id: new ObjectId(id) });
+      if (!experience) return res.status(404).json({ error: 'Not found' });
+
+  
+      const hostId = experience.host?.toString();
+      if (hostId !== userId) {
+        return res
+          .status(403)
+          .json({ error: 'You can only delete your own experiences' });
+      }
 
       const result = await collection.deleteOne({ _id: new ObjectId(id) });
       if (result.deletedCount === 0)
@@ -265,67 +313,69 @@ app.delete(
   }
 );
 
-// ────────────── GET /api/users/:id (improved) ──────────────
-app.get('/api/users/:id', async (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const users = getUserCollection();
-    const { id } = req.params;
+// ────────────── USER ROUTES ──────────────
+// GET /api/users/:id
+app.get(
+  '/api/users/:id',
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const users = getUserCollection();
+      const { id } = req.params;
 
-    let user = null;
+      let user = null;
+      if (ObjectId.isValid(id)) {
+        user = await users.findOne({ _id: new ObjectId(id) });
+      }
+      if (!user) {
+        user = await users.findOne({ _id: id } as any);
+      }
 
+      if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (ObjectId.isValid(id)) {
-      user = await users.findOne({ _id: new ObjectId(id) });
+      const { password, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-   
-    if (!user) {
-      user = await users.findOne({ _id: id } as any);
-    }
-
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    // exclude password
-    const { password, ...userWithoutPassword } = user;
-    res.json({ user: userWithoutPassword });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
   }
-});
+);
 
-// ────────────── PUT /api/users/:id (improved) ──────────────
-app.put('/api/users/:id', async (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const users = getUserCollection();
-    const { id } = req.params;
-    const { name, location, bio } = req.body;
-    const update: any = {};
-    if (name) update.name = name;
-    if (location !== undefined) update.location = location;
-    if (bio !== undefined) update.bio = bio;
+// PUT /api/users/:id
+app.put(
+  '/api/users/:id',
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const users = getUserCollection();
+      const { id } = req.params;
+      const { name, location, bio } = req.body;
+      const update: any = {};
+      if (name) update.name = name;
+      if (location !== undefined) update.location = location;
+      if (bio !== undefined) update.bio = bio;
 
-    let result = null;
+      let result = null;
+      if (ObjectId.isValid(id)) {
+        result = await users.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { $set: update },
+          { returnDocument: 'after', projection: { password: 0 } }
+        );
+      }
+      if (!result) {
+        result = await users.findOneAndUpdate(
+          { _id: id } as any,
+          { $set: update },
+          { returnDocument: 'after', projection: { password: 0 } }
+        );
+      }
 
-    if (ObjectId.isValid(id)) {
-      result = await users.findOneAndUpdate(
-        { _id: new ObjectId(id) },
-        { $set: update },
-        { returnDocument: 'after', projection: { password: 0 } }
-      );
+      if (!result) return res.status(404).json({ error: 'User not found' });
+      res.json({ user: result });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
-    if (!result) {
-      result = await users.findOneAndUpdate(
-        { _id: id } as any,
-        { $set: update },
-        { returnDocument: 'after', projection: { password: 0 } }
-      );
-    }
-
-    if (!result) return res.status(404).json({ error: 'User not found' });
-    res.json({ user: result });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
   }
-});
+);
 
 // ────────────── Root ──────────────
 app.get('/', (req: Request, res: Response) => {
