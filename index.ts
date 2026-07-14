@@ -1,7 +1,7 @@
 // index.ts
 import express, { type Request, type Response } from 'express';
 import dotenv from 'dotenv';
-import cors from 'cors'; 
+import cors from 'cors';
 import {
   MongoClient,
   ServerApiVersion,
@@ -55,6 +55,18 @@ interface Experience {
   createdAt?: Date;
 }
 
+interface User {
+  _id?: ObjectId;
+  name: string;
+  email: string;
+  password?: string;
+  role?: 'user' | 'host' | 'admin';
+  avatar?: string;
+  bio?: string;
+  location?: string;
+  createdAt?: Date;
+}
+
 interface QueryParams {
   search?: string;
   category?: string;
@@ -80,22 +92,26 @@ async function connectDB() {
   }
 }
 
-app.use(cors());   
+app.use(cors());
 app.use(express.json());
 
-// ────────────── Helper: get collection ──────────────
-function getCollection(): Collection<Experience> {
+// ────────────── Helper: get collections ──────────────
+function getExperienceCollection(): Collection<Experience> {
   const db = app.locals.db as Db;
   return db.collection<Experience>('experiences');
 }
-// Alternatively, we can directly assign with type assertion inside routes, but the function is cleaner.
+
+function getUserCollection(): Collection<User> {
+  const db = app.locals.db as Db;
+  return db.collection<User>('users');
+}
 
 // ────────────── GET /api/experiences ──────────────
 app.get(
   '/api/experiences',
   async (req: Request<{}, {}, {}, QueryParams>, res: Response) => {
     try {
-      const collection = getCollection();
+      const collection = getExperienceCollection();
 
       const {
         search,
@@ -166,7 +182,7 @@ app.get(
   '/api/experiences/:id',
   async (req: Request<{ id: string }>, res: Response) => {
     try {
-      const collection = getCollection();
+      const collection = getExperienceCollection();
       const { id } = req.params;
 
       if (!ObjectId.isValid(id))
@@ -185,7 +201,7 @@ app.get(
 // ────────────── POST /api/experiences ──────────────
 app.post('/api/experiences', async (req: Request, res: Response) => {
   try {
-    const collection = getCollection();
+    const collection = getExperienceCollection();
     const newExp: Experience = {
       ...req.body,
       ratingAvg: 0,
@@ -206,7 +222,7 @@ app.put(
   '/api/experiences/:id',
   async (req: Request<{ id: string }>, res: Response) => {
     try {
-      const collection = getCollection();
+      const collection = getExperienceCollection();
       const { id } = req.params;
 
       if (!ObjectId.isValid(id))
@@ -232,7 +248,7 @@ app.delete(
   '/api/experiences/:id',
   async (req: Request<{ id: string }>, res: Response) => {
     try {
-      const collection = getCollection();
+      const collection = getExperienceCollection();
       const { id } = req.params;
 
       if (!ObjectId.isValid(id))
@@ -245,6 +261,63 @@ app.delete(
       res.json({ message: 'Deleted successfully' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ────────────── USER PROFILE ROUTES (new) ──────────────
+
+// GET /api/users/:id – Get user profile (public, no auth)
+app.get(
+  '/api/users/:id',
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const users = getUserCollection();
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id))
+        return res.status(400).json({ error: 'Invalid user ID' });
+
+      const user = await users.findOne(
+        { _id: new ObjectId(id) },
+        { projection: { password: 0 } } // exclude password
+      );
+
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      res.json({ user });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// PUT /api/users/:id – Update profile (name, location, bio)
+app.put(
+  '/api/users/:id',
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const users = getUserCollection();
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id))
+        return res.status(400).json({ error: 'Invalid user ID' });
+
+      const { name, location, bio } = req.body;
+      const update: any = {};
+      if (name) update.name = name;
+      if (location !== undefined) update.location = location;
+      if (bio !== undefined) update.bio = bio;
+
+      const updated = await users.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: update },
+        { returnDocument: 'after', projection: { password: 0 } }
+      );
+
+      if (!updated) return res.status(404).json({ error: 'User not found' });
+      res.json({ user: updated });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
   }
 );
