@@ -1,25 +1,3 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "src/index.ts",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/src/index.ts"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/src/index.ts"
-    }
-  ],
-  "functions": {
-    "src/index.ts": {
-      "memory": 256,
-      "maxDuration": 10
-    }
-  }
+  "rewrites": [{ "source": "/(.*)", "destination": "/dist/index.js" }]
 }

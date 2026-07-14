@@ -59,3 +59,4 @@ pids
 
 # Optional: keep specific files
 # !.env.example
+.env*
